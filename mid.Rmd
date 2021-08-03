@@ -1,0 +1,574 @@
+---
+title: "é¡§å®¢?ƒ¹?€¼ç®¡???"
+output: html_document
+---
+
+Setup
+?œ¨?€²è?Œå?†æ?ä?‹å?ï?Œå?ˆå?‰è?ä»¥ä¸‹åŸº?œ¬å¥—ä»¶
+
+```{r}
+packages = c(
+  "dplyr","ggplot2","googleVis","devtools","magrittr","caTools","ROCR","caTools","readr","vcd","d3heatmap","Matrix")
+existing = as.character(installed.packages()[,1])
+for(pkg in packages[!(packages %in% existing)]) install.packages(pkg)
+if(!is.element("chorddiag", existing))
+  devtools::install_github("mattflor/chorddiag")
+
+library(dplyr)
+library(ggplot2)
+library(caTools)
+library(ROCR)
+library(googleVis)
+library(chorddiag)
+```
+
+
+1. è³‡æ?™åŒ¯?…¥
+```{r}
+load("cut_A.rdata")
+load("X.rdata")
+load("Z.rdata")
+#X$year <- year(X$date)
+```
+
+
+```{r}
+#é¡¯ç¤º??„åœ°??€å¹³å?‡è³¼è²·ç?„é?‘é??
+par(family="jf-openhuninn-1.0")
+par(cex = 0.8)
+cc = A %>% filter(department == 23 & `2019_s` %in% c("S1", "S2", "S3"))
+table(cc$country) %>% sort()
+tapply(cc$revenue, cc$country, mean) %>% sort(decreasing = T) %>% barplot(las=2)
+abline(h = mean(cc$revenue), col='red')
+
+save(A, file = "0516.rdata")
+```
+
+```{r}
+A$log_monetary = log(A$monetary)
+par(cex = 0.8)
+par(family="jf-openhuninn-1.0")
+group_names=c("G1:27äº?","G2:67äº?","G3:95äº?","G4:9äº?","G5:207äº?")
+A[,c(2:6)] %>% scale %>% as.data.frame %>%  split(.,A$kmeans) %>% sapply(colMeans) %>% 
+  barplot(beside=T, col=rainbow(5),names.arg=group_names)
+legend("topleft", c("ç¬¬ä?€æ¬¡è³¼è²·æ—¥??Ÿè?ä??","??€è¿‘ä?€æ¬¡æ?ˆè²»è·ä??", "è³¼è²·? »???","å¹³å?‡è³¼è²·é?‘é??", "ç¸½æ”¶???"),fill=rainbow(5), cex = 1.0)
+
+title(main = "Kmeans??†ç¾¤???")
+```
+*è§€å¯Ÿé?é??*
+(è¡¨ç¾è¼ƒä½³??„å®¢ç¾?)
+1.g1:ç¸½æ”¶??Šé??(? »??‡ä??)
+2.g4:ç¸½æ”¶??Šé??(? »??‡é??)
+
+(è¡¨ç¾è¼ƒå·®??„å®¢ç¾?)
+1.g2:å¾ˆä?…æ?’ä?†ä?”èŠ±è²»é?‘é?ä??
+2.g3:å¾ˆä?…æ?’ä?†ä?”èŠ±è²»é?‘é?ä??
+3.g5:??€è¿‘æ?‰ä?†ä?†èŠ±è²»é?‘é?ä??
+
+
+
+```{r}
+group_by(A, kmeans) %>% summarise(
+  recent=mean(recency), 
+  freq=mean(frquency), 
+  money=mean(monetary), 
+  size=n()) %>% 
+  mutate( revenue = size*money/1000 )  %>% 
+  filter(size > 1) %>% 
+  ggplot(aes(x=freq, y=money)) +
+  geom_point(aes(size=revenue, col=recent),alpha=0.5) +
+  scale_size(range=c(4,30)) +
+  scale_color_gradient(low="green",high="red") +
+  scale_x_log10() + scale_y_log10() + 
+  geom_text(aes(label = size ),size=3) +
+  theme_bw() + guides(size=F) +
+  labs(title="Customer Segements",
+       subtitle="(bubble_size:revenue_contribution; text:group_size)",
+       color="Recency") +
+  xlab("Frequency (log)") + ylab("Average Transaction Amount (log)")
+```
+*è§€å¯Ÿé?é??*
+(?³ä¸?)è³¼è²·? »??‡æ¥µé«˜ã€?
+(ä¸Šæ–¹)ç¸½æ”¶?…¥ä¾†æ?ç¬¬äºŒå¤§??„ç¾¤ï¼Œå¹³??‡æ?æ¬¡è³¼è²·??‘é?éƒ½å¾ˆé?˜ã€?
+(å·¦ä??)?ƒ¹?€¼ä?ä?”å¿«æµå¤±??„å®¢ç¾¤ã€?
+
+
+```{r}
+# é¡¯ç¤º??„åœ°??€ä½”æ??
+group_by(A,area, kmeans) %>% 
+  summarise(count = n()) %>%
+  group_by(kmeans) %>% 
+  mutate(sum = sum(count),ratio = count/sum) %>% 
+  ggplot(aes(x=as.factor(kmeans),y = ratio,fill = area)) + geom_bar(stat = "identity")+
+  xlab("Kmeans??†ç¾¤çµæ??") +
+  labs(title="Kmeans??†ç¾¤?œ°??€æ¯”ä??") +
+  theme(text=element_text( family="jf-openhuninn-1.0",size=14))
+```
+
+
+3. è¦å?‡å?†ç¾¤
+
+3.1 ?‡ªè¡Œå?šç¾©é¡§å®¢??†ç¾¤è¦å??
+```{r}
+#é¡§å®¢å¹³å?‡è³¼è²·é€±æ?? K=85
+K = as.integer(sum(A$seniority[A$frquency>1])/sum(A$frquency[A$frquency>1]))
+#?–°é¡§å®¢å¹³å?‡é »???*??‘é?? fxmx_mean = 1145335
+fxmx_mean<-mean(A[A$seniority<170,4])*mean(A[A$seniority<170,5])
+
+#N1?–°é¡§å®¢
+#N2?–°é¡§å®¢
+#R1ä¸»å?›é¡§å®?
+#R2? ¸å¿ƒé¡§å®?
+#S1??Œç¡é¡§å®¢
+#S2??Šç?Œç¡é¡§å®¢
+#S3æ²‰ç¡é¡§å®¢
+#13734255
+STS = c("N1","N2","R1","R2","S1","S2","S3")
+Status = function(rx,fx,mx,sx,K) {factor(
+  ifelse(sx < 2*K,
+         ifelse(fx*mx>1145335,"N2","N1"),
+         ifelse(rx < 2*K,
+                ifelse(sx/fx < 0.75*K,"R2","R1"),
+                ifelse(rx < 3*K,"S1",
+                       ifelse(rx < 4*K,"S2","S3")))), STS)}
+```
+![Caption for the picture.](D:\download\CLA.PNG)
+
+3.2 ä»¥å¹´åº¦æ•´??†ç•¶å¹´ç‚ºæ­¢ç?„é¡§å®¢è?‡æ??
+```{r}
+Y = list()              # å»ºç?‹ä?€?€‹ç©º??„LIST
+for(y in 2016:2019) {   # æ¯å¹´å¹´å?•å?‡é¡§å®¢è?‡æ?™å?™æ•´??ä?€?€‹è?‡æ?™æ??
+  AA = merge(x = A, y = X, by = "client")
+  D = as.Date(paste0(c(y, y-1),"-12-31")) # ?•¶??Ÿã€å?æ?Ÿç?„æ?Ÿæœ«?—¥??? 
+  Y[[paste0("Y",y)]] = AA %>%        # å¾äº¤??“è?‡æ?™å?šèµ·
+    filter(date <= D[1]) %>%        # å°‡è?‡æ?™å?‡é?Šåˆ°??Ÿæœ«?—¥???
+    mutate(days = 1 + as.integer(D[1] - date)) %>%   # äº¤æ?“è?æ?Ÿæœ«å¤©æ•¸
+    group_by(client) %>% summarise(    # ä¾é¡§å®¢å?™ç¸½ ...
+      recency = min(days),           #   ??€å¾Œä?€æ¬¡è³¼è²·è?æ?Ÿæœ«å¤©æ•¸   
+      frquency = n(),                   #   è³¼è²·æ¬¡æ•¸ (?‡³??Ÿæœ«?‚ºæ­?)   
+      monetary = mean(total),         #   å¹³å?‡è³¼è²·é?‘é?? (?‡³??Ÿæœ«?‚ºæ­?)
+      seniority = max(days),           #   ç¬¬ä?€æ¬¡è³¼è²·è?æ?Ÿæœ«å¤©æ•¸
+      status = as.factor(kmeans[1]),  # æ­·å²??€???
+      y_status = Status(recency,frquency,monetary,seniority,K),  # ?œ¬??Ÿæœ«??€???
+      since = min(date),                      # ç¬¬ä?€æ¬¡è³¼è²·æ—¥???
+      y_frquency = sum(date > D[2]),              # ?•¶??Ÿè³¼è²·æ¬¡?•¸
+      y_revenue = sum(total[date > D[2]]),    # ?•¶??Ÿè³¼è²·é?‘é??
+      y_monetary = y_revenue/y_frquency,    # ?•¶??Ÿå¹³??‡è³¼è²·é?‘é??
+      area = area.x[1],
+      department = department.x[1]
+    ) %>% data.frame }
+```
+
+```{r}
+head(Y$Y2016) #head?¯ä»¥æª¢è¦–å?å…­ç­†ç?„è?‡æ??
+```
+
+
+
+3.3 æ¯å¹´å¹´å?•ç?„ç´¯è¨ˆé¡§å®¢äºº?•¸
+```{r}
+sapply(Y, nrow)  #?€é?sapply?¯ä»¥å?‡æ?…å–®??„æ?ä?€æ¬„å?—å…¥ä½ æ?‡å?šç?„å‡½?•¸ï¼Œä¸¦å°‡ç?æ?œæ•´??†ä»¥??‘é?ã€çŸ©?™£?€å?—è¡¨??„å½¢å¼è¼¸?‡º?€?
+```
+17å¹´åº¦å¢å??:84ä½å®¢?ˆ¶
+18å¹´åº¦å¢å??:38ä½å®¢?ˆ¶
+19å¹´åº¦å¢å??:43ä½å®¢?ˆ¶
+
+3.4 ??ç¾¤å¤§å?è?Šå?–è¶¨?‹¢
+```{r}
+cols = c("orange","blue","green","gold","pink","magenta","darkred") #??‡å?šæ?å€‹æ?ç¾¤??„é?è‰²
+sapply(Y, function(df) table(df$y_status)) %>% barplot(col=cols) 
+legend("topleft",rev(STS),fill=rev(cols)) #?‹¿ä¾†æ?™ç¤º??–ç?„å?–ä?‹ï?Œä¸¦??‡å?šåœ¨å·¦ä?Šè?’ã€?
+#N1?–°é¡§å®¢
+#N2æ½›å?›æ–°é¡§å®¢
+#R1ä¸»å?›é¡§å®?
+#R2? ¸å¿ƒé¡§å®?
+#S1??Œç¡é¡§å®¢
+#S2??Šç?Œç¡é¡§å®¢
+#S3æ²‰ç¡é¡§å®¢
+```
+### *è§€å¯Ÿé?é??*
+æ²‰ç¡é¡§å®¢æ¯å¹´??‰æ?é¡¯å¢å? ç?„è¶¨?‹¢ï¼Œè€Œä?”ä?”æ?€??‰ç?„é¡§å®¢æ?”é?è?Šä?†è?Šå¤§?€?
+
+
+
+3.5 ??ç¾¤å±¬æ€§å?•æ?‹å?†æ??
+
+```{r}
+#??ˆä½µ?…©??†ç¾¤çµæ??
+A2016 <- as.data.frame(Y$Y2016[,c(1,7)])
+A2017 <- as.data.frame(Y$Y2017[,c(1,7)])
+A2018 <- as.data.frame(Y$Y2018[,c(1,7)])
+A2019 <- as.data.frame(Y$Y2019[,c(1,7)])
+A <- merge(x = A, y = A2016, by = "client", all.x = TRUE)
+names(A)[12] <- "2016_s"
+A <- merge(x = A, y = A2017, by = "client", all.x = TRUE)
+names(A)[13] <- "2017_s"
+A <- merge(x = A, y = A2018, by = "client", all.x = TRUE)
+names(A)[14] <- "2018_s"
+A <- merge(x = A, y = A2019, by = "client", all.x = TRUE)
+names(A)[15] <- "2019_s"
+
+#Kmeans
+CustSegments = do.call(rbind, lapply(Y, function(d) {
+  group_by(d,status) %>% summarise(
+    average_frquency = mean(frquency),
+    average_monetary = mean(monetary),
+    year_total_revenue = sum(y_revenue),
+    year_total_no_orders = sum(y_frquency),
+    year_average_monetary = mean(y_monetary,na.rm = TRUE),
+    average_recency = mean(recency),
+    average_seniority = mean(seniority),
+    group_size = n()
+  )})) %>% ungroup %>% 
+  mutate(year=rep(2016:2019, each=5)) %>% data.frame()
+
+```
+
+```{r}
+
+A %>% filter(department == 23 & `2018_s` == "S3" & `2019_s` == "S3")
+
+# library(readr)
+# Z = read_csv("./_new.csv") %>% arrange(Date)
+# Z$Date = as.Date(Z$Date, format="%Y/%m/%d")
+# 
+# un_clientZ = Z %>% filter(Client %in% un_client & Date > as.Date("2019-01-01")) 
+# table(un_clientZ$Department_no) %>% barplot()
+# CC = A %>% filter(`2019_s` == 'R2')
+# 
+# un_client = unique(CC$client)
+# ZZ = left_join(CC,)
+# table(CC$area) %>% barplot()
+```
+
+
+```{r}
+#?‡ªè¨‚å?†ç¾¤
+clientSegments = do.call(rbind, lapply(Y, function(d) {
+  group_by(d,y_status) %>% summarise(
+    average_frquency = mean(frquency),
+    average_monetary = mean(monetary),
+    year_total_revenue = sum(y_revenue),
+    year_total_no_orders = sum(y_frquency),
+    year_average_monetary = mean(y_monetary,na.rm = TRUE),
+    average_recency = mean(recency),
+    average_seniority = mean(seniority),
+    group_size = n()
+  )})) %>% ungroup %>% 
+  mutate(year=rep(2016:2019, each=7)) %>% data.frame
+
+clientS = do.call(rbind, lapply(Y, function(d) {
+  group_by(d,client) %>% summarise(
+    average_frquency = mean(frquency),
+    average_monetary = mean(monetary),
+    year_total_revenue = sum(y_revenue),
+    year_total_no_orders = sum(y_frquency),
+    year_average_monetary = mean(y_monetary,na.rm = TRUE),
+    average_recency = mean(recency),
+    average_seniority = mean(seniority),
+    group_size = n(),
+    status = y_status[1]
+  )})) %>% ungroup  %>% data.frame
+
+
+clientS<-clientS %>% 
+  mutate(year=substr(row.names(clientS),2,5)) 
+
+clientS$year <- as.integer(clientS$year)
+```
+
+
+
+4. ?ˆ©?”¨??•æ?‹æ³¡æ³¡å?–ï?Œæ?‘å€‘å¯è¿½è¹¤??„é¡§å®¢æ?ç¾¤??„ä¸­?€é•·??Ÿè?Šå?–è¶¨?‹¢
+
+?‡ªè¨‚ç¾©??†ç¾¤
+```{r}
+#plot( gvisMotionChart(
+#  clientSegments, "y_status", "year",
+#  options=list(width=900, height=600) ) )
+```
+Kmean
+```{r}
+#plot(
+#gvisMotionChart(
+#  CustSegments, "status", "year",
+#  options=list(width=900, height=600)))
+```
+
+```{r}
+#plot(
+#gvisMotionChart(
+#  clientS, "client", "year",
+#  options=list(width=900, height=600)))
+```
+
+
+5. ??ç¾¤å±¬æ€§å?•æ?‹å?†æ??
+
+```{r}
+df3 = merge(Y$Y2018[,c(1,7)], Y$Y2019[,c(1,7)],
+           by="client", all.x=T)
+df2 = merge(Y$Y2017[,c(1,7)], Y$Y2018[,c(1,7)],
+           by="client", all.x=T)
+df1 = merge(Y$Y2016[,c(1,7)], Y$Y2017[,c(1,7)],
+           by="client", all.x=T)
+
+tx1 = table(df1$y_status.x, df1$y_status.y) %>% 
+  as.data.frame.matrix() %>% as.matrix()
+tx2 = table(df2$y_status.x, df2$y_status.y) %>% 
+  as.data.frame.matrix() %>% as.matrix()
+tx3 = table(df3$y_status.x, df3$y_status.y) %>% 
+  as.data.frame.matrix() %>% as.matrix()
+
+```
+
+```{r}
+tx1 %>% prop.table(1) %>% round(3)   # æµé?çŸ©?™£(%)
+
+```
+
+```{r}
+tx2 %>% prop.table(1) %>% round(3)   # æµé?çŸ©?™£(%)
+
+```
+
+```{r}
+tx3 %>% prop.table(1) %>% round(3)   # æµé?çŸ©?™£(%)
+```
+
+6. äº’å?•å?æ?é?å?†æ??
+
+16-17
+```{r}
+chorddiag(tx1, groupColors=cols)
+```
+
+17-18
+```{r}
+chorddiag(tx2, groupColors=cols)
+```
+
+18-19
+```{r}
+chorddiag(tx3, groupColors=cols)
+```
+*è§€å¯Ÿé?é??*
+é¡§å®¢æµé?å?€S3æµå?•ç?„ç?€æ³è?Šä?†è?Šæ?é¡¯
+å¾æ?‰ç¡é¡§å®¢??æ?è‡³ä¸»å?›é¡§å®¢ç?„æ?…æ?ä?Ÿè?Šä?†è?Šå??
+
+
+
+(é¡§å®¢??ç¹ª)
+?”¢???(product_category)?€æ¥­???(department_no)?€åœ°??€(Area)
+```{r}
+colnames(Z)[3]<-"client"
+Z = left_join(Z, A[,c(1,11:14)])
+```
+
+```{r}
+# colnames(Z)[3]<-"client"
+Z = left_join(X, A[,c(1,11:14)])
+```
+
+
+####?”¢??ç‰¹å¾?
+2017(?³???)>2018(ä¸Šæ??)
+```{r}
+library(plotly)
+group_by(Z, `2017_s`, `2018_s`) %>% count(Product_category) %>% 
+  top_n(5, n) %>% mutate(rank = row_number(desc(n))) %>% 
+  arrange(`2017_s`, `2018_s`, rank) %>% 
+  filter(rank <= 5, !is.na(`2018_s`),!is.na(`2017_s`)) -> df 
+ggplot(df, aes(x=rank, y=n, label=Product_category)) +
+  geom_col(aes(fill=Product_category)) +
+  facet_grid(`2017_s` ~ `2018_s`,scales="free_y") -> g
+ggplotly(g)
+n_distinct(df$Product_category)
+```
+(NEW>SLEEP):?‘½å°¾èºçµ²ã€å?‘æ¿?ºçµ?
+(NEW>R):?‡ª??Ÿèºçµ²ã€å?‘æ¿?ºçµ?(R1)
+(ä¸»å?›å®¢?ˆ¶ç¶­æ??):??‹å£???(R2)?€é‘½å°¾èºçµ?(R1?€R2)?€å?‘æ¿?ºçµ?(R1)
+(SLEEP>R):?‘½å°¾èºçµ²ã€å?‘æ¿?ºçµ²ã€é?‹å£??‹ã€è‡ª??Ÿèºçµ?
+(SLEEP>SLEEP):?‘½å°¾èºçµ²ã€è‡ª??Ÿèºçµ²ã€é?‹å£??‹ã€ä¹¾??†èºçµ?
+
+
+2018(?³???)>2019(ä¸Šæ??)
+```{r}
+group_by(Z, `2018_s`, `2019_s`) %>% count(Product_main_category) %>% 
+  top_n(5, n) %>% mutate(rank = row_number(desc(n))) %>% 
+  arrange(`2018_s`, `2019_s`, rank) %>% 
+  filter(rank <= 5, !is.na(`2019_s`),!is.na(`2018_s`)) -> df 
+ggplot(df, aes(x=rank, y=n, label=Product_main_category)) +
+  geom_col(aes(fill=Product_main_category)) +
+  facet_grid(`2018_s` ~ `2019_s`,scales="free_y") -> g
+ggplotly(g)
+n_distinct(df$Product_main_category)
+```
+(NEW>SLEEP):??‹å£???
+(NEW>R):??‹å£???(R2)?€é‘½å°¾èºçµ²ã€ä¹¾??†èºçµ²ã€å?‘æ¿?ºçµ?(R1)
+(ä¸»å?›å®¢?ˆ¶ç¶­æ??):?‘½å°¾èºçµ²ã€å?‘æ¿?ºçµ?(R1)?€é?‹å£???(R2)
+(SLEEP>R):?‘½å°¾èºçµ²ã€ä¹¾??†èºçµ?
+(SLEEP>SLEEP):?‘½å°¾èºçµ²ã€å?‘æ¿?ºçµ²ã€è‡ª??Ÿèºçµ²ã€ä¹¾??†èºçµ?
+
+*è§€å¯Ÿé?é??*
+1.ä¸»å?›é¡§å®¢ç?„ä¸»è¦æ?ˆè²»?”¢??å¯??‹å‡ºå¡‘æ¿?ºçµ?(R1)?€é?‹å£??‹æ?‰ä??(R2)
+2.?‘½å°¾èºçµ²å¹¾ä¹æ˜¯æ¯ç¨®??€??‹ç?„é¡§å®¢éƒ½??‰ä?€å®šç?„è³¼è²·æ?”ç??
+3.?¯ä»¥ç?‹å‡ºä¸»å?›å?†å?ä¸»è¦æ˜¯?‘½å°¾èºçµ²ã€å?‘æ¿?ºçµ²ã€è‡ª??Ÿèºçµ²ã€ä¹¾??†èºçµ²ã€é?‹å£??‹ä?”å¤§é¡?
+?”¢??è¡¨?¾æµ®å?•å¯?ƒ½?˜¯?? ç‚ºè³‡æ?™æ?‚é?“è?ƒçŸ­,?„¡æ³•é¿??ç”¢??ç?„é€±æ?Ÿæ€§å¸¶ä¾†ç?„å½±?Ÿ¿
+
+æª¢æ¸¬å¡‘æ¿?ºçµ?(R1)?€é?‹å£??‹æ?‰ä??(R2)??„ç¾è±¡æ˜¯ä¸æ˜¯?? é?‹å£??‹åƒ¹?Œ¢è¼ƒé?˜æ?€?€ æ?ç?„å½±?Ÿ¿(no)
+
+```{r}
+aa = Z %>% filter(`2018_s` == "N2" & `2019_s` == "R1")
+
+table(aa$Area)
+Z$year = format(Z$Date, "%Y")
+
+Z %>% group_by(year, Product_main_category) %>% summarise(sum = sum(NTD)) %>% ungroup() %>% group_by(year) %>% mutate(sum = sum/sum(sum)) %>% 
+  filter(Product_main_category %in% c("?ºçµ?", "??‰é??")) %>% ggplot(aes(x = year, y = sum, group= factor(Product_main_category), color = Product_main_category)) + geom_line() + theme(text=element_text(family="jf-openhuninn-1.0", size=14))
+```
+
+
+```{r}
+Z%>%filter(Product_category=="??‹å£???") ->g1
+mean(g1$NTD,na.rm=TRUE)
+```
+
+```{r}
+Z %>% filter(Product_category=="å¡‘æ¿?ºçµ?") ->g2
+mean(g2$NTD,na.rm=TRUE)
+```
+
+
+####è² è²¬äººç‰¹å¾?
+2017(?³???)>2018(ä¸Šæ??)
+```{r}
+A$department<-A$department %>% as.factor()
+group_by(A, `2017_s`, `2018_s`) %>% count(department) %>% 
+  top_n(5, n) %>% mutate(rank = row_number(desc(n))) %>% 
+  arrange(`2017_s`, `2018_s`, rank) %>% 
+  filter(rank <= 5, !is.na(`2018_s`),!is.na(`2017_s`)) -> df 
+ggplot(df, aes(x=rank, y=n, label=department)) +
+  geom_col(aes(fill=department)) +
+  facet_grid(`2017_s` ~ `2018_s`,scales="free_y") -> g
+ggplotly(g)
+n_distinct(df$department)
+```
+(NEW>SLEEP):23?€?112
+(NEW>R):23?€?12?€?115
+(ä¸»å?›å®¢?ˆ¶ç¶­æ??):23?€?12?€?3?€?74?€?25
+(SLEEP>R):12?€?25?€?74
+(SLEEP>SLEEP):74?€?25?€?23
+
+
+2018(?³???)>2019(ä¸Šæ??)
+```{r}
+
+# group_by(A, `2018_s`, `2019_s`) %>% count(department) %>% 
+#   top_n(5, n) %>% mutate(rank = row_number(desc(n))) %>% 
+#   arrange(`2018_s`, `2019_s`, rank) %>% 
+#   filter(rank <= 5, !is.na(`2019_s`),!is.na(`2018_s`)) -> df 
+# ggplot(df, aes(x=rank, y=n, label=department)) +
+#   geom_col(aes(fill=department)) +
+#   facet_grid(`2018_s` ~ `2019_s`,scales="free_y") -> g
+# ggplotly(g)
+# n_distinct(df$department)
+
+A  %>% group_by( `2018_s`, `2019_s`) %>% count(department) %>% group_by(`2018_s`, department) %>% mutate(scale = scale(n)) %>% mutate(rank = row_number(desc(scale))) %>% 
+  arrange(`2018_s`, `2019_s`, rank) %>% 
+  filter(rank <= 5, !is.na(`2019_s`),!is.na(`2018_s`)) -> df 
+ggplot(df, aes(x=department, y=scale, label=department)) +
+  geom_col(aes(fill=department)) +
+  facet_grid(`2018_s` ~ `2019_s`,scales="free_y") + theme(axis.text.x = element_blank()) -> g
+ggplotly(g)
+n_distinct(df$department)
+
+
+```
+(NEW>SLEEP):3
+(NEW>R):3?€?58?€?23?€?12
+(ä¸»å?›å®¢?ˆ¶ç¶­æ??):58?€?23?€?12?€?74?€?3
+(SLEEP>R):23?€?12?€?25
+(SLEEP>SLEEP):23?€?74?€?12?€?25
+
+
+*è§€å¯Ÿé?é??*
+1.?”±?–°è½‰è‡³ä¸»å?›ç?„é¡§å®¢æ¥­???:23?€?12
+2.ä¸»å?›é¡§å®¢ç¶­??ç?€??‹æ¥­???:23?€?12?€?74?€?3
+3.??šé?’é¡§å®¢ä¸»è¦æ¥­???:12?€?25
+4.?¡?? é¡§å®¢ä¸»è¦æ¥­???:23?€?74?€?25
+??‰ç‰¹?ˆ¥è¡¨ç¾??„æ¥­??™é?è?‡ç?‡é??(?¯?ƒ½è·Ÿè? è²¬??„é¡§å®¢æ•¸??æ?‰é??)
+ä½†ç¸½é«”ä?†èªª"12"??€è² è²¬??„é¡§å®¢ç?€??‹è¡¨?¾è¼ƒä½³
+
+```{r}
+#æª¢è?–è? è²¬??„è?‚å–®æ¯”æ•¸
+table(Z$Department_no) %>%sort() %>% barplot()
+```
+
+```{r}
+# Z = read_csv("./??æ?‡_å¤§æ•¸??šå?†æ?æ¨£?œ¬.xlsx - å·¥ä?œè¡¨1.csv") %>% arrange(Date)
+# Z$Date = as.Date(Z$Date, format="%Y/%m/%d")
+# par(family="jf-openhuninn-1.0")
+# AA = Z %>% filter(`æ¥­å?™å“¡` == "S2-??—è‚²è³?")
+# table(AA$`??€??Ÿ`) %>%sort()
+# table(Z$æ¥­å?™å“¡) %>%sort() %>% barplot()
+```
+
+
+
+####??‹å®¶?œ°??€?‰¹å¾?
+2017(?³???)>2018(ä¸Šæ??)
+```{r}
+# Z$Country<-Z$Country %>% as.factor()
+# A$area<-A$area %>% as.factor()
+# group_by(A, `2017_s`, `2018_s`) %>% count(area) %>%
+#   top_n(5, n) %>% mutate(rank = row_number(desc(n))) %>%
+#   arrange(`2017_s`, `2018_s`, rank) %>%
+#   filter(rank <= 5, !is.na(`2018_s`),!is.na(`2017_s`)) -> df
+# ggplot(df, aes(x=rank, y=n, label=area)) +
+#   geom_col(aes(fill=area)) +
+#   facet_grid(`2017_s` ~ `2018_s`,scales="free_y") -> g
+# ggplotly(g)
+# n_distinct(df$area)
+A  %>% group_by( `2017_s`, `2018_s`) %>% count(area) %>% group_by(`2018_s`, area) %>% mutate(scale = scale(n)) %>% mutate(rank = row_number(desc(scale))) %>% 
+  arrange(`2017_s`, `2018_s`, rank) %>% 
+  filter(rank <= 5, !is.na(`2019_s`),!is.na(`2018_s`)) -> df 
+ggplot(df, aes(x=area, y=scale, label=area)) +
+  geom_col(aes(fill=area)) +
+  facet_grid(`2018_s` ~ `2019_s`,scales="free_y") -> g
+ggplotly(g)
+n_distinct(df$area)
+```
+(NEW>SLEEP):äºæ´²?€æ?æ´²?€é?æ´²
+(NEW>R):äºæ´²?€ä¸­?±
+(ä¸»å?›å®¢?ˆ¶ç¶­æ??):äºæ´²?€ä¸­?±?€æ?æ´²?€ä¸­??—ç?æ´²
+(SLEEP>R):äºæ´²?€ä¸­?±?€é?æ´²
+(SLEEP>SLEEP):äºæ´²?€æ?æ´²?€ä¸­??—ç?æ´²
+
+
+2018(?³???)>2019(ä¸Šæ??)
+```{r}
+A  %>% group_by( `2018_s`, `2019_s`) %>% count(area) %>% group_by(`2018_s`, area) %>% mutate(scale = scale(n)) %>% mutate(rank = row_number(desc(scale))) %>% 
+  arrange(`2018_s`, `2019_s`, rank) %>% 
+  filter(rank <= 5, !is.na(`2019_s`),!is.na(`2018_s`)) -> df 
+ggplot(df, aes(x=area, y=scale, label=area)) +
+  geom_col(aes(fill=area)) +
+  facet_grid(`2018_s` ~ `2019_s`,scales="free_y") + theme(axis.text.x = element_blank()) -> g
+ggplotly(g)
+n_distinct(df$area)
+```
+
+(NEW>SLEEP):æ­æ´²(ä¸€é»é??)
+(NEW>R):äºæ´²?€ä¸­?±?€æ?æ´²?€ä¸­??—ç?æ´²
+(ä¸»å?›å®¢?ˆ¶ç¶­æ??):äºæ´²?€ä¸­?±?€æ?æ´²?€ä¸­??—ç?æ´²
+(SLEEP>R):äºæ´²?€ä¸­?±?€æ?æ´²
+(SLEEP>SLEEP):äºæ´²?€é?æ´²?€æ?æ´²?€ä¸­?±?€å¤§æ´‹æ´²
+
+
+*è§€å¯Ÿé?é??*
+1.?–°é¡§å®¢è½‰å…¥æ²‰ç¡é¡§å®¢??„æ?…å½¢"æ­æ´²"è¼ƒç‚º??é¡¯
+2.?–°é¡§å®¢è½‰å…¥ä¸»å?›é¡§å®¢ç?„æ?…å½¢"ä¸­æ±"?€?"äºæ´²"è¼ƒç‚ºç©©å??
+3.ç©©å?šè?•åœ¨ä¸»å?›é¡§å®¢ç?„å®¢ç¾?"äºæ´²"?€?"ä¸­æ±"?€?"æ­æ´²"?€?"ä¸­å?—ç?æ´²"
+4.?€šå¸¸è¢«å?šé?’ç?„é¡§å®¢ç‚º"äºæ´²"?€?"ä¸­æ±"(ä¸­æ±è¡¨ç¾è¼ƒç©©å®?)
+5.æ»¯ç?™åœ¨æ²‰ç¡é¡§å®¢??æ®µ"äºæ´²"???"æ­æ´²"è¦ç‰¹?ˆ¥æ³¨æ??
+

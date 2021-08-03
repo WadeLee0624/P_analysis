@@ -1,0 +1,155 @@
+---
+title: "é¡§å®¢?ƒ¹?€¼ç®¡???"
+output: html_document
+---
+
+Setup
+?œ¨?€²è?Œå?†æ?ä?‹å?ï?Œå?ˆå?‰è?ä»¥ä¸‹åŸº?œ¬å¥—ä»¶
+
+```{r}
+packages = c(
+  "dplyr","ggplot2","googleVis","devtools","magrittr","caTools","ROCR","caTools","readr","vcd","d3heatmap","Matrix")
+existing = as.character(installed.packages()[,1])
+for(pkg in packages[!(packages %in% existing)]) install.packages(pkg)
+if(!is.element("chorddiag", existing))
+  devtools::install_github("mattflor/chorddiag")
+
+library(dplyr)
+library(ggplot2)
+library(caTools)
+library(ROCR)
+library(googleVis)
+library(chorddiag)
+```
+
+
+```{r}
+library(readxl)
+```
+
+
+1. è³‡æ?™åŒ¯?…¥
+```{r}
+all<-read_excel("?‡ºè²¨è?‡æ??.xlsx")
+```
+
+
+```{r}
+colnames(all)<-c("cust","supply","packageID","oderID","sapnum","sapID","custID","DocDuDate","pID","product","num","unit","OrderPrice","DocCurr","DocRate","PackUp","U_Weight","Country","CountryName","Territory","TerritoryName","U_OITMType","TypeName","U_OITMCode","CodeName","U_DocType","SlpCode")
+```
+
+
+```{r}
+all$DocDuDate = as.Date(all$DocDuDate)
+```
+
+
+2. è³‡æ?™æ•´???
+
+```{r}
+X = all %>% group_by(oderID,U_DocType) %>% summarise(
+  date = min(DocDuDate),          # äº¤æ?“æ—¥???  
+  custID = min(custID),          # é¡§å®¢ ID
+  area = min(Territory),          # é¡§å®¢ å±…ä?å?€?ˆ¥
+  country = min(Country),    # é¡§å®¢ ??‹å®¶??€?ˆ¥
+  items = n(),               # äº¤æ?“é?…ç›®(ç¸?)?•¸
+  total = sum(OrderPrice),        # äº¤æ??(ç¸?)??‘é??
+) %>% data.frame
+nrow(X) 
+```
+
+
+
+
+
+```{r}
+A = X %>% 
+  mutate(days = as.integer(as.Date("2020-05-20") - date)) %>% 
+  group_by(custID) %>% summarise(
+    recent = min(days),     # ??€è¿‘è³¼è²·è?ä?Šå¤©?•¸
+    freq = n(),             # è³¼è²·æ¬¡æ•¸
+    money = mean(total),   # å¹³å?‡è³¼è²·é?‘é??
+    senior = max(days),     # ç¬¬ä?€æ¬¡è³¼è²·è?ä?Šå¤©?•¸
+    since = min(date) ,      # ç¬¬ä?€æ¬¡è³¼è²·æ—¥???
+    long= as.integer(senior/freq) #è³¼è²·?€±æ??
+  ) %>% data.frame
+```
+
+
+å°‡é•·??Ÿé¡§å®?(long>365)?€ä¸­???(long<=365&long>=180)??ŒçŸ­???(long<180)é¡§å®¢??†é??
+```{r}
+LONG=A %>% filter(long>365)
+MID=A %>% filter(long<=365 & long>=180)
+SHORT=A %>% filter(long<180)
+```
+
+å¹³å?‡è³¼è²·é€±æ??
+```{r}
+LK = as.integer(sum(LONG$senior[LONG$freq>1])/sum(LONG$freq[LONG$freq>1]))#498å¤?
+MK = as.integer(sum(MID$senior[MID$freq>1])/sum(MID$freq[MID$freq>1]))#234å¤?
+SK = as.integer(sum(SHORT$senior[SHORT$freq>1])/sum(SHORT$freq[SHORT$freq>1]))#5å¤?
+K= as.integer(sum(A$senior[A$freq>1])/sum(A$freq[A$freq>1]))#5å¤?
+```
+
+
+3.??†ç¾¤
+?Ÿ­??Ÿé¡§å®?
+
+```{r}
+#?–°é¡§å®¢å¹³å?‡é »???*??‘é?? fxmx_mean 
+fxmx<-SHORT %>% filter((senior/freq)<10) 
+fxmx_mean<-mean(fxmx$freq) * mean(fxmx$money)
+fxmx_mean
+```
+
+```{r}
+STS = c("N1","N2","R1","R2","S1","S2","S3")
+Status = function(rx,fx,mx,sx,SK) {factor(
+  ifelse(sx/fx < SK,
+         ifelse(fx*mx > 408658.3, "N2", "N1"),
+         ifelse(rx < 2*SK,
+                ifelse(sx/fx < 0.75*SK,"R2","R1"),
+                ifelse(rx < 3*SK,"S1",
+                       ifelse(rx < 4*SK,"S2","S3")))), STS)}
+```
+
+
+```{r}
+SHORT_X=left_join(SHORT,all[,c(7,8,13)])
+```
+
+
+```{r}
+Y = list()              # å»ºç?‹ä?€?€‹ç©º??„LIST
+for(y in 2016:2019) {   # æ¯å¹´å¹´å?•å?‡é¡§å®¢è?‡æ?™å?™æ•´??ä?€?€‹è?‡æ?™æ??
+  D = as.Date(paste0(c(y, y-1),"-12-31")) # ?•¶??Ÿã€å?æ?Ÿç?„æ?Ÿæœ«?—¥??? 
+  Y[[paste0("Y",y)]] = SHORT_X %>%        # å¾äº¤??“è?‡æ?™å?šèµ·
+    filter(DocDuDate <= D[1]) %>%        # å°‡è?‡æ?™å?‡é?Šåˆ°??Ÿæœ«?—¥???
+    mutate(days = 1 + as.integer(D[1] - DocDuDate)) %>%   # äº¤æ?“è?æ?Ÿæœ«å¤©æ•¸
+    group_by(custID) %>% summarise(    # ä¾é¡§å®¢å?™ç¸½ ...
+      recent = min(days),           #   ??€å¾Œä?€æ¬¡è³¼è²·è?æ?Ÿæœ«å¤©æ•¸   
+      freq = n(),                   #   è³¼è²·æ¬¡æ•¸ (?‡³??Ÿæœ«?‚ºæ­?)   
+      money = mean(OrderPrice),         #   å¹³å?‡è³¼è²·é?‘é?? (?‡³??Ÿæœ«?‚ºæ­?)
+      senior = max(days),           #   ç¬¬ä?€æ¬¡è³¼è²·è?æ?Ÿæœ«å¤©æ•¸
+      status = Status(recent,freq,money,senior,SK),  # ??Ÿæœ«??€???
+      since = min(DocDuDate),                      # ç¬¬ä?€æ¬¡è³¼è²·æ—¥???
+      y_freq = sum(DocDuDate> D[2]),              # ?•¶??Ÿè³¼è²·æ¬¡?•¸
+      y_revenue = sum(OrderPrice[DocDuDate > D[2]])    # ?•¶??Ÿè³¼è²·é?‘é??
+    ) %>% data.frame }
+
+sapply(Y, nrow)
+```
+
+```{r}
+sapply(Y, function(x) table(x$status))
+```
+
+```{r}
+cols = c("gold","orange","blue","green",
+         "pink","magenta","darkred")
+sapply(Y, function(df) table(df$status)) %>% barplot(col=cols)
+legend("topleft",rev(STS),fill=rev(cols))
+```
+
+
+
